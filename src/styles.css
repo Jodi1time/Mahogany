@@ -703,3 +703,12 @@ body{font-size:16px}
 .load-table td{padding-left:10px;padding-right:10px}
 }
 
+
+/* Local human evidence review. */
+.manual-review-bar{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:18px 22px;border-top:1px solid var(--line);background:var(--bg)}
+.manual-review-bar strong{font-size:14px;font-weight:600}.manual-review-bar p{font-size:13px;color:var(--muted);margin-top:5px}.manual-review-bar .btn{flex-shrink:0}
+.review-file-name{display:flex;align-items:center;gap:10px;margin-bottom:15px;padding:12px 14px;background:var(--bg);border:1px solid var(--line);border-radius:8px;overflow-wrap:anywhere;font-size:14px}
+.field small{display:block;color:var(--muted);font-size:12px;line-height:1.6;margin-top:6px}.field select{font-size:16px;min-height:44px}
+.review-attestation{display:flex;align-items:flex-start;gap:10px;padding:14px 0;font-size:14px;line-height:1.6}.review-attestation input{width:18px;height:18px;flex-shrink:0;margin:3px 0 0;accent-color:var(--accent)}
+#manual-note{min-height:100px}
+@media(max-width:700px){.manual-review-bar{align-items:flex-start;flex-direction:column;padding:16px}.manual-review-bar .btn{width:100%}}

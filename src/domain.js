@@ -33,8 +33,8 @@ function assess(load) {
       const d=matched[0];
       const title=!d.complete?(kind==='pod'?'The signature area is cropped':'A page is incomplete'):!d.readable?'The document is unreadable':'The receiving signature is not visible';
       checks.push({id:kind,label:TYPE_NAMES[kind],state:'fail',detail:title+'.'});
-      blockers.push({id:'quality-'+kind,kind:'quality',title,detail:'The '+TYPE_NAMES[kind].toLowerCase()+' appears to belong to this load, but its required information is not fully visible.',action:'Request a clear, full-page copy.'});
-    } else checks.push({id:kind,label:TYPE_NAMES[kind],state:'pass',detail:'Sample metadata indicates a matching, readable, complete document.'});
+      blockers.push({id:'quality-'+kind,kind:'quality',documentType:kind,title,detail:'The '+TYPE_NAMES[kind].toLowerCase()+' appears to belong to this load, but its required information is not fully visible.',action:'Request a clear, full-page copy.'});
+    } else checks.push({id:kind,label:TYPE_NAMES[kind],state:'pass',detail:usable.reviewMethod==='manual'?'A local reviewer recorded a matching, readable, complete document.':'Sample metadata indicates a matching, readable, complete document.'});
   }
   const unknown=active.filter(d=>!d.reviewed||d.type==='unclassified');
   const unmatched=active.filter(d=>d.reviewed&&d.type!=='unclassified'&&(!d.match||d.reference!==load.id));
@@ -42,7 +42,7 @@ function assess(load) {
   if(unknown.length) blockers.push({id:'manual',kind:'manual',title:'An added file needs manual assessment',detail:'No live extraction or document assessment is connected. '+unknown.length+' file(s) remain unreviewed.',action:'A qualified employee must inspect and classify the file.'});
   const exception=load.exceptionHold||active.some(d=>d.notation);
   checks.push({id:'exceptions',label:'Delivery notation check',state:exception?'review':'pass',detail:exception?'A delivery exception remains on hold for human judgment.':'No exception notation is flagged in the sample evidence.'});
-  if(exception) blockers.push({id:'exception',kind:'exception',title:'A damage notation needs review',detail:'The sample POD notes damaged cartons. Replacing the file does not resolve this commercial exception.',action:'Escalate to the billing or claims lead. Do not clear automatically.'});
+  if(exception) blockers.push({id:'exception',kind:'exception',title:'A delivery notation needs review',detail:'A damage, shortage, or other delivery exception was recorded. Replacing the file does not resolve this commercial exception.',action:'Escalate to the billing or claims lead. Do not clear automatically.'});
   const state=!sourcesOK?'incomplete':blockers.some(b=>['match','exception','manual'].includes(b.kind))?'review':blockers.length?(load.pendingRequest?'waiting':'attention'):'ready';
   const done=load.required.filter(type=>checks.find(c=>c.id===type)?.state==='pass').length;
   return {state,blockers,checks,done,total:load.required.length,sourcesOK,ready:state==='ready'};
@@ -53,7 +53,7 @@ function event(load,text,type='note',actor='You',at=new Date().toISOString()) {
 function followupDraft(load) {
   const a=assess(load);
   const items=a.blockers.filter(b=>['missing','quality'].includes(b.kind));
-  let request=items.map(b=>b.kind==='quality'?'a clear, full-page copy of the signed proof of delivery, including the receiving-signature area':b.title.replace(' is missing','').toLowerCase()).join('; and ');
+  let request=items.map(b=>b.kind==='quality'?(b.documentType==='pod'?'a clear, full-page copy of the signed proof of delivery, including the receiving-signature area':'a clear, complete copy of the '+TYPE_NAMES[b.documentType].toLowerCase()):b.title.replace(' is missing','').toLowerCase()).join('; and ');
   return {subject:`Load ${load.id} · delivery paperwork`,body:`Hi ${load.carrier} team,\n\nWe are preparing the paperwork for load ${load.id} (${load.origin} to ${load.destination}).\n\nPlease reply with ${request||'the outstanding paperwork for this load'}.\n\nWe have checked the available shipment record and document mailbox before making this request.\n\nThank you,\nNorthline Billing`};
 }
 function canRequest(load) {
@@ -97,7 +97,34 @@ function restoreSampleSource(load) {
 function packetManifest(load) {
   const a=assess(load);
   if(!a.ready) throw new Error('This load still has unresolved paperwork. A review packet cannot be exported.');
-  return {product:'MAHOGANY',version:VERSION,demo:true,state:'ready_for_billing_review',billingApproved:false,disclaimer:'Fictional demo evidence. Not for billing, payment, claims, or operational use. Readiness comes from seeded metadata, not live OCR or AI.',generatedAt:new Date().toISOString(),load:{id:load.id,customer:load.customer,carrier:load.carrier,origin:load.origin,destination:load.destination,recordedDeliveredAt:load.deliveredAt,deliveryStatusSource:load.deliverySource},checklist:a.checks,sources:load.sources,documents:load.docs.map(d=>({id:d.id,name:d.name,type:d.type,reference:d.reference,source:d.source,receivedAt:d.receivedAt,superseded:d.superseded})),history:load.events};
+  return {product:'MAHOGANY',version:VERSION,demo:true,state:'ready_for_billing_review',billingApproved:false,disclaimer:'Sample workspace. Not for billing, payment, claims, or operational use. Readiness uses seeded metadata or recorded local human reviews. No live OCR or AI. Reviewer names are self-reported, not authenticated.',generatedAt:new Date().toISOString(),load:{id:load.id,customer:load.customer,carrier:load.carrier,origin:load.origin,destination:load.destination,recordedDeliveredAt:load.deliveredAt,deliveryStatusSource:load.deliverySource},checklist:a.checks,sources:load.sources,documents:load.docs.map(d=>({id:d.id,name:d.name,type:d.type,reference:d.reference,source:d.source,receivedAt:d.receivedAt,superseded:d.superseded,assessmentMethod:d.reviewMethod||'seeded',reviewed:d.reviewed,match:d.match,readable:d.readable,complete:d.complete,signature:d.signature,notation:d.notation,manualReview:d.manualReview||null})),history:load.events};
+}
+function reviewDocument(load,docId,review) {
+  const original=load.docs.find(doc=>doc.id===docId&&!doc.superseded);
+  if(!original?.data) throw new Error('Choose an active uploaded document.');
+  if(!review||!['pod','rate','invoice'].includes(review.type)) throw new Error('Choose the document type.');
+  if(typeof review.reviewer!=='string'||!review.reviewer.trim()||review.reviewer.trim().length>80) throw new Error('Enter your name, up to 80 characters.');
+  if(review.inspected!==true) throw new Error('Inspect the original file and confirm your review.');
+  if(typeof review.reference!=='string'||review.reference.trim().length>40) throw new Error('Enter the reference shown on the file, up to 40 characters.');
+  if(['readable','complete','signature'].some(key=>typeof review[key]!=='boolean')) throw new Error('Answer each document-quality question.');
+  if(!['yes','no','unknown'].includes(review.notation)) throw new Error('Record whether a delivery notation is present.');
+  if(typeof review.note!=='string'||review.note.trim().length>2000) throw new Error('Keep the review note under 2,000 characters.');
+  const next=copy(load),doc=next.docs.find(item=>item.id===docId),at=new Date().toISOString();
+  const before={type:doc.type,reference:doc.reference,match:doc.match,readable:doc.readable,complete:doc.complete,signature:doc.signature,notation:doc.notation,reviewed:doc.reviewed,manualReview:doc.manualReview||null};
+  const reference=review.reference.trim();
+  Object.assign(doc,{type:review.type,reference:reference||null,match:reference===load.id,readable:review.readable,complete:review.complete,signature:review.signature,notation:review.notation==='yes',reviewed:review.notation!=='unknown',reviewMethod:'manual',manualReview:{reviewer:review.reviewer.trim(),at,note:review.note.trim(),notationResult:review.notation,identityVerified:false}});
+  let replaced=null;
+  if(review.replaces) {
+    replaced=next.docs.find(item=>item.id===review.replaces&&item.id!==docId&&!item.superseded);
+    if(!replaced||replaced.type!==doc.type) throw new Error('Choose an active document of the same type to replace.');
+    if(!doc.match||!doc.readable||!doc.complete||!doc.reviewed||(doc.type==='pod'&&!doc.signature)) throw new Error('A replacement must match this load and pass the document-quality checks.');
+    replaced.superseded=true;
+  }
+  next.exceptionHold=next.exceptionHold||load.docs.some(item=>item.notation)||doc.notation;
+  event(next,`Manual review recorded for ${doc.name}. Reference: ${reference||'unreadable / absent'}. ${doc.match?'Matches this load.':'Load match remains unconfirmed.'} Readable: ${doc.readable?'yes':'no'}. Complete: ${doc.complete?'yes':'no'}. Signature: ${doc.signature?'visible':'not confirmed'}. Delivery notation: ${review.notation}.${replaced?' Replaces '+replaced.name+'; original retained.':''}${review.note.trim()?' Note: '+review.note.trim():''}`,'manual-review',review.reviewer.trim()+' (local reviewer)',at);
+  next.events[next.events.length-1].documentReview={documentId:doc.id,before,after:{type:doc.type,reference:doc.reference,match:doc.match,readable:doc.readable,complete:doc.complete,signature:doc.signature,notation:doc.notation,reviewed:doc.reviewed,manualReview:doc.manualReview},replacedId:replaced?.id||null};
+  if(assess(next).ready) next.pendingRequest=null;
+  return next;
 }
 function parseCSV(text) {
   if(text.length>1_000_000) throw new Error('Use a CSV smaller than 1 MB.');
@@ -144,6 +171,9 @@ function isValidState(state) {
         ['pod','rate','invoice','unclassified'].includes(doc.type) &&
         ['match','readable','complete','signature','notation','superseded','reviewed'].every(key => typeof doc[key] === 'boolean') &&
         (doc.reference === null || text(doc.reference)) && text(doc.source) && date(doc.receivedAt) &&
+        (doc.reviewMethod === undefined || (doc.reviewMethod === 'manual' && doc.manualReview &&
+          text(doc.manualReview.reviewer) && date(doc.manualReview.at) && text(doc.manualReview.note) &&
+          ['yes','no','unknown'].includes(doc.manualReview.notationResult) && doc.manualReview.identityVerified === false)) &&
         (doc.data === undefined || (text(doc.data) && /^data:(application\/pdf|image\/png|image\/jpeg);base64,/.test(doc.data)))) &&
       Array.isArray(load.sources) && load.sources.length > 0 && load.sources.every(source => source &&
         text(source.name) && ['checked','unavailable'].includes(source.state) &&

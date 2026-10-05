@@ -2,7 +2,7 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { Script } from 'node:vm';
 const root = new URL('../', import.meta.url);
 const read = name => readFile(new URL(name, root), 'utf8');
-const names = ['assets', 'fixtures', 'domain', 'files', 'app', 'webmcp'];
+const names = ['assets', 'fixtures', 'domain', 'files', 'app', 'manual-review', 'webmcp'];
 const scripts = await Promise.all(names.map(name => read(`src/${name}.js`)));
 const js = `(()=>{\n'use strict';\n${scripts.join('\n')}\n})();`;
 new Script(js, { filename: 'mahogany.js' });
